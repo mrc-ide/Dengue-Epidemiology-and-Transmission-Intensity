@@ -1,1 +1,58 @@
+#----- Code to assessed Spatial correlation diagnostic (Moran’s l) for FOI estimates at the regional and district level.
 
+# Produces the analyses and code used for the paper (Dengue Epidemiology and Transmission Intensity 
+# across Panama during 2000-2024).
+
+# Cite as:                                                                                
+# Quijada M et al, Dengue Epidemiology and Transmission Intensity across Panama           
+# during 2000-2024                                                                        
+# Pre-print available at: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5461361%20  
+
+#Data format expected (wide): Region, District, Age-group, Sex, 2000,2001,...,2024
+#Model: district-level constant FOI (lambda), reporting prob rho and gamma region-level.
+
+# Before running: edit USER CONFIG (file paths, region_to_run, cmdstan dir, stan model path)
+
+
+#Base Model
+library(sf)
+library(spdep)
+library(INLA)
+library(readxl)
+library(dplyr)
+
+#Data 
+Lambda <- read_excel("~/Desktop/Imperial College London/Research/PhD 2024-2025 /Serotype/Data/Parameters - Serotypes.xlsx")
+
+lam <- Lambda %>% filter(Trace == "lam_H")
+
+# 1. Read shapefile
+setwd("~/Desktop/Imperial College London/Research/PhD 2025-2026/INLA/shp")
+sf_data <- st_read("Regions_2026.shp")
+
+sf_data <- st_transform(sf_data, 4326)
+
+st_crs(sf_data)
+
+# Ensure polygons are valid
+sf_data <- st_make_valid(sf_data)
+
+# Convert to sp object for spdep compatibility
+sp_data <- as(sf_data, "Spatial")
+
+# Create neighbor list based on shared boundaries
+nb <- poly2nb(sp_data, queen = TRUE)  
+
+
+
+#Merge Data set to FOI
+sf_data <- sf_data %>% 
+  left_join(lam %>% select(Region, pred), by = "Region")
+
+lw <- nb2listw(nb, style = "W")
+
+foi <- sf_data$pred
+
+moran_result <- moran.test(foi, lw)
+
+moran_result
