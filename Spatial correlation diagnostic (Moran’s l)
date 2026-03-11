@@ -22,12 +22,14 @@ library(readxl)
 library(dplyr)
 
 #Data 
-Lambda <- read_excel("~/Desktop/Imperial College London/Research/PhD 2024-2025 /Serotype/Data/Parameters - Serotypes.xlsx")
+Lambda <- read_excel("path/to/lam - Serotype-specfic model.xlsx") #lambda by Region and District from Serotype-specfic model.
 
-lam <- Lambda %>% filter(Trace == "lam_H")
 
-# 1. Read shapefile
-setwd("~/Desktop/Imperial College London/Research/PhD 2025-2026/INLA/shp")
+#spatial autocorrelation at the regional 
+lamR <- Lambda %>% filter(level == "Region")
+
+#Read shapefile
+setwd("~/path/to/Shapefile")
 sf_data <- st_read("Regions_2026.shp")
 
 sf_data <- st_transform(sf_data, 4326)
@@ -44,10 +46,45 @@ sp_data <- as(sf_data, "Spatial")
 nb <- poly2nb(sp_data, queen = TRUE)  
 
 
+#Merge Data set to FOI
+sf_data <- sf_data %>% 
+  left_join(lam %>% select(level, pred), by = "level")
+
+lw <- nb2listw(nb, style = "W")
+
+foi <- sf_data$pred
+
+moran_result <- moran.test(foi, lw)
+
+moran_result
+
+
+
+
+#spatial autocorrelation at the district 
+lamR <- Lambda %>% filter(level == "District")
+
+#Read shapefile
+setwd("~/path/to/Shapefile")
+sf_data <- st_read("Districts_2026.shp")
+
+sf_data <- st_transform(sf_data, 4326)
+
+st_crs(sf_data)
+
+# Ensure polygons are valid
+sf_data <- st_make_valid(sf_data)
+
+# Convert to sp object for spdep compatibility
+sp_data <- as(sf_data, "Spatial")
+
+# Create neighbor list based on shared boundaries
+nb <- poly2nb(sp_data, queen = TRUE)  
+
 
 #Merge Data set to FOI
 sf_data <- sf_data %>% 
-  left_join(lam %>% select(Region, pred), by = "Region")
+  left_join(lam %>% select(level, pred), by = "level")
 
 lw <- nb2listw(nb, style = "W")
 
