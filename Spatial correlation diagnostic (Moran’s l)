@@ -1,6 +1,11 @@
-#----- Code to assessed Spatial correlation diagnostic (Moran’s l) for FOI estimates at the regional and district level.
+#-----Spatial correlation diagnostic (Moran’s l) for FOI estimates
 
-# Produces the analyses and code used for the paper (Dengue Epidemiology and Transmission Intensity 
+
+# This script calculates global Moran’s I statistics for
+# FOI (Force of Infection) estimates at both the regional 
+# and district administrative levels across Panama.
+
+# This code reproduces the analyses and code used for the paper (Dengue Epidemiology and Transmission Intensity 
 # across Panama during 2000-2024).
 
 # Cite as:                                                                                
@@ -8,15 +13,15 @@
 # during 2000-2024                                                                        
 # Pre-print available at: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5461361%20  
 
-#Data format expected (wide): Region, District, Age-group, Sex, 2000,2001,...,2024
-#Model: district-level constant FOI (lambda), reporting prob rho and gamma region-level.
+#Data format expected (wide): Location, Level (District- Region), pred (FOI estimates)
+#Model: Spatial correlation diagnostic (Moran’s l) 
 
-# Before running: edit USER CONFIG (file paths, region_to_run, cmdstan dir, stan model path)
+# Before running: edit USER CONFIG (file paths, filter level)
 
 
-#Base Model
+# Load required packages
 library(sf)
-library(spdep)
+library(spdep) # spatial autocorrelation + neighbor lists
 library(INLA)
 library(readxl)
 library(dplyr)
@@ -24,72 +29,80 @@ library(dplyr)
 #Data 
 Lambda <- read_excel("path/to/lam - Serotype-specfic model.xlsx") #lambda by Region and District from Serotype-specfic model.
 
+#===========================================================
+# PART 1 — Spatial autocorrelation at the REGIONAL level
+#===========================================================
 
-#spatial autocorrelation at the regional 
+# Filter FOI table for region-level estimates
 lamR <- Lambda %>% filter(level == "Region")
 
 #Read shapefile
 setwd("~/path/to/Shapefile")
 sf_data <- st_read("Regions_2026.shp")
 
+# Reproject to WGS84 (EPSG:4326) to match coordinates
 sf_data <- st_transform(sf_data, 4326)
 
-st_crs(sf_data)
-
-# Ensure polygons are valid
+# Ensure all polygons are valid for spatial operations
 sf_data <- st_make_valid(sf_data)
 
-# Convert to sp object for spdep compatibility
+# Convert sf → sp object (spdep requires sp format)
 sp_data <- as(sf_data, "Spatial")
 
 # Create neighbor list based on shared boundaries
 nb <- poly2nb(sp_data, queen = TRUE)  
 
-
-#Merge Data set to FOI
+# Merge FOI data with spatial object
 sf_data <- sf_data %>% 
   left_join(lam %>% select(level, pred), by = "level")
 
+# Spatial weights list (row-standardized)
 lw <- nb2listw(nb, style = "W")
 
+# Extract FOI vector
 foi <- sf_data$pred
 
+# Compute Moran’s I for regional FOI estimates
 moran_result <- moran.test(foi, lw)
-
 moran_result
 
 
+#===========================================================
+# PART 2 — Spatial autocorrelation at the DISTRICT level
+#===========================================================
 
-
-#spatial autocorrelation at the district 
 lamR <- Lambda %>% filter(level == "District")
 
-#Read shapefile
+# Load district shapefile
 setwd("~/path/to/Shapefile")
 sf_data <- st_read("Districts_2026.shp")
 
 sf_data <- st_transform(sf_data, 4326)
-
 st_crs(sf_data)
-
-# Ensure polygons are valid
 sf_data <- st_make_valid(sf_data)
 
-# Convert to sp object for spdep compatibility
-sp_data <- as(sf_data, "Spatial")
 
-# Create neighbor list based on shared boundaries
-nb <- poly2nb(sp_data, queen = TRUE)  
-
-
-#Merge Data set to FOI
+# Merge FOI values to district geometries
 sf_data <- sf_data %>% 
-  left_join(lam %>% select(level, pred), by = "level")
+  left_join(lam %>% select(Location, pred), 
+            by = c("Distrito" = "Location"))
 
-lw <- nb2listw(nb, style = "W")
 
-foi <- sf_data$pred
+# Some districts have NA FOI values (e.g., island districts)
+# Moran’s I cannot run on NA values, so we subset
 
-moran_result <- moran.test(foi, lw)
+sf_sub <- sf_data[!is.na(sf_data$pred), ]
+foi_sub <- sf_sub$pred
 
+# Convert to Spatial for spdep
+sp_sub <- as(sf_sub, "Spatial")
+
+# Recompute neighbor structure for the subsetted districts
+nb_sub <- poly2nb(sp_sub, queen = TRUE)
+
+# Use zero.policy = TRUE in case any polygon lacks neighbors
+lw_sub <- nb2listw(nb_sub, style = "W", zero.policy = TRUE)
+
+# Compute Moran’s I for district-level FOI
+moran_result <- moran.test(foi_sub, lw_sub, zero.policy = TRUE)
 moran_result
